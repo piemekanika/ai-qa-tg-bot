@@ -1,62 +1,76 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { exec } from './util/exec.js'
+
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
 import TelegramBot from 'node-telegram-bot-api';
-import Replicate from 'replicate'
 
-import { Configuration, OpenAIApi } from "openai";
-const configuration = new Configuration({
-    apiKey: process.env.OPENAI_API_KEY,
-});
-
-const openai = new OpenAIApi(configuration);
-
+import { audioToTextOpenai } from './ai/augio-to-text.js'
+import { getChatGPTResponse } from './ai/chat-gpt.js'
+import * as fs from 'fs'
 const bot = new TelegramBot(process.env.TG_BOT_TOKEN, {polling: true});
-
-const replicate = new Replicate({
-    auth: process.env.COHERE_AUTH,
-});
-
-const getTranscript = (fileLink) => {
-    return replicate.run(
-        'openai/whisper:e39e354773466b955265e969568deb7da217804d8e771ea8c9cd0cef6591f8bc',
-        {
-            input: {
-                audio: fileLink,
-            },
-        },
-    );
-}
-
-const getCompletion = (prompt) => {
-    return openai.createCompletion({
-        model: "text-davinci-003",
-        prompt,
-        max_tokens: 1000,
-        temperature: 0,
-    });
-}
 
 bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
 
-    if (!msg.voice) {
-        await bot.sendMessage(chatId, 'Please send a voice message');
+    const sendMessage = (_text) => {
+        bot.sendMessage(chatId, _text);
+    }
+
+    if (!msg.voice && !msg.text) {
+        await sendMessage('Не понимаю, что ты от меня хочешь. Попробуй еще раз.');
         return;
     }
 
+    await sendMessage('Обработка начинается...');
+
+    let text = '';
+
+    if (!msg.voice) {
+        text = msg.text;
+    }
+
+    if (msg.voice) {
+        try {
+
+            const __filename = fileURLToPath(import.meta.url);
+            const __dirname = dirname(__filename);
+
+            console.log('file_id :: ', msg.voice.file_id)
+
+            const path = await bot.downloadFile(msg.voice.file_id, __dirname);
+            const path_mp3 = path.replace('.oga', '.mp3');
+
+            await exec(`ffmpeg -i ${path} ${path_mp3}`)
+
+            await sendMessage('Начинаю распознание речи...');
+
+            const { data } = await audioToTextOpenai(fs.createReadStream(path_mp3));
+
+            await exec(`rm ${path} ${path_mp3}`);
+
+            await sendMessage(`Получилось распознать речь! Вы сказали: "${data.text}"`);
+
+            text = data.text;
+        } catch (e) {
+            console.log('Не получилось распознать речь!', e?.response?.data?.error || e);
+            await sendMessage('Не получилось распознать речь! Попробуй еще раз.');
+            return;
+        }
+    }
+
     try {
-        const fileLink = await bot.getFileLink(msg.voice.file_id)
 
-        console.log('got file link, sending to cohere ::', fileLink);
+        await sendMessage('Отправляю запрос в chat gpt...');
 
-        const transcript = await getTranscript(fileLink);
+        const answer = await getChatGPTResponse(text);
 
-        console.log('got transcript, sending to openai ::', transcript.transcription)
+        await sendMessage('Ответ получен!');
 
-        const answer = await getCompletion(transcript.transcription);
-
-        console.log('got answer :: ', answer.data.choices[0].text.slice(0, 10) + '...');
+        console.log('got answer :: ', answer.data.choices[0].text.slice(0, 25) + '...');
 
         await bot.sendMessage(chatId, answer.data.choices[0].text);
     } catch (e) {

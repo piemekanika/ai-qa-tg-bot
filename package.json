@@ -1,7 +1,7 @@
 {
-  "name": "simple",
+  "name": "ai-tg-bot-piemekanika",
   "version": "1.0.0",
-  "description": "",
+  "description": "AI Telegram Bot",
   "main": "cohere-tg-bot.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -9,11 +9,10 @@
     "start:cohere-tg-bot": "node cohere-tg-bot.js"
   },
   "keywords": [],
-  "author": "",
+  "author": "piemekanika",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@huggingface/inference": "^1.6.3",
     "cohere-ai": "^6.1.0",
     "dotenv": "^16.0.3",
     "node-telegram-bot-api": "^0.61.0",
